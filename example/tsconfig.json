@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "expo-object-tracker": ["../src/index"],
+      "expo-object-tracker/*": ["../src/*"]
+    }
+  }
+}
