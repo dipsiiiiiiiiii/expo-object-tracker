@@ -2147,7 +2147,7 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: bf0811570c8da182bfb879169437d4de298376e7
   ExpoLinking: d5c183998ca6ada66ff45e407e0f965b398a8902
   ExpoModulesCore: 00a1b5c73248465bd0b93f59f8538c4573dac579
-  ExpoObjectTracker: 685689467b36bfb4a593b67d95f1086d7202c2c1
+  ExpoObjectTracker: cc0574a9625420bfb943c04e993469441f6feda9
   ExpoVideoThumbnails: ef1a4c7bff9ab3b4e006ce17576c3f09320b4cf4
   fast_float: 06eeec4fe712a76acc9376682e4808b05ce978b6
   FBLazyVector: 07309209b7b914451b8f822544a18e2a0a85afff

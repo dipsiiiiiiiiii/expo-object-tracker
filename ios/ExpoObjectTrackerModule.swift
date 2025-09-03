@@ -52,5 +52,46 @@ public class ExpoObjectTrackerModule: Module {
     AsyncFunction("getVideoResolution") { (videoUri: String) -> [String: Int] in
       return try await self.videoProcessor.getVideoResolution(videoUri: videoUri)
     }
+    
+    // Model Loading
+    AsyncFunction("loadModel") { (modelPath: String, modelType: String, classNames: [String]?) -> Void in
+      return try await self.videoProcessor.loadModel(modelPath: modelPath, modelType: modelType, classNames: classNames)
+    }
+    
+    // YOLOv11 Detection Methods  
+    AsyncFunction("detectObjects") { (videoUri: String, frameIndex: Int) -> [[String: Any]] in
+      return try await self.videoProcessor.detectObjects(videoUri: videoUri, frameIndex: frameIndex)
+    }
+    
+    AsyncFunction("detectObjectsInVideo") { (videoUri: String, maxFrames: Int) -> [[String: Any]] in
+      return try await self.videoProcessor.detectObjectsInVideo(videoUri: videoUri, maxFrames: maxFrames)
+    }
+    
+    AsyncFunction("createDetectionPreview") { (videoUri: String, frameIndex: Int, detections: [[String: Any]]) -> String in
+      return try await self.videoProcessor.createDetectionPreview(
+        videoUri: videoUri,
+        frameIndex: frameIndex,
+        detections: detections
+      )
+    }
+    
+    // Combined Detection + Tracking Methods
+    AsyncFunction("detectAndTrackObjects") { (videoUri: String, targetClassName: String?, minConfidence: Float, detectionInterval: Int) -> [[String: Any]] in
+      return try await self.videoProcessor.detectAndTrackObjects(
+        videoUri: videoUri,
+        targetClassName: targetClassName,
+        minConfidence: minConfidence,
+        detectionInterval: detectionInterval
+      )
+    }
+    
+    
+    AsyncFunction("createTrackingVisualization") { (videoUri: String, trackingResults: [[String: Any]], outputPath: String?) -> String in
+      return try await self.videoProcessor.createTrackingVisualization(
+        videoUri: videoUri,
+        trackingResults: trackingResults,
+        outputPath: outputPath
+      )
+    }
   }
 }

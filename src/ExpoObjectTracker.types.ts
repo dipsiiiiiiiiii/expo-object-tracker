@@ -41,3 +41,45 @@ export type PreviewFrame = {
   imageUri: string;
   boundingBox: BoundingBox;
 };
+
+export type DetectedObject = {
+  className: string;
+  confidence: number;
+  boundingBox: BoundingBox;
+  identifier: string;
+  frameIndex?: number;
+  time?: number;
+  segmentationMask?: string; // Base64 encoded image or URI for segmentation mask
+};
+
+export type TrackedObject = {
+  objectId: string;
+  frameIndex: number;
+  className: string;
+  confidence: number;
+  source: 'detection' | 'tracking';
+  boundingBox: BoundingBox;
+};
+
+export type ModelConfig = {
+  modelPath: string;
+  type: 'yolo11' | 'custom';
+  classNames?: string[];
+};
+
+export type VideoProcessingOptions = {
+  targetClassName?: string;
+  minConfidence?: number;
+  maxFrames?: number;
+  modelConfig?: ModelConfig;
+};
+
+export type ExpoObjectTrackerModuleEvents = {
+  onChange: {
+    value: string;
+  };
+};
+
+export type ExpoObjectTrackerViewProps = {
+  style?: any;
+};

@@ -1,6 +1,6 @@
 // Learn more https://docs.expo.io/guides/customizing-metro
-const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+const { getDefaultConfig } = require("expo/metro-config");
+const path = require("path");
 
 const config = getDefaultConfig(__dirname);
 
@@ -9,20 +9,27 @@ const config = getDefaultConfig(__dirname);
 // excludes the one from the parent folder when bundling.
 config.resolver.blockList = [
   ...Array.from(config.resolver.blockList ?? []),
-  new RegExp(path.resolve('..', 'node_modules', 'react')),
-  new RegExp(path.resolve('..', 'node_modules', 'react-native')),
+  new RegExp(path.resolve("..", "node_modules", "react")),
+  new RegExp(path.resolve("..", "node_modules", "react-native")),
 ];
 
 config.resolver.nodeModulesPaths = [
-  path.resolve(__dirname, './node_modules'),
-  path.resolve(__dirname, '../node_modules'),
+  path.resolve(__dirname, "./node_modules"),
+  path.resolve(__dirname, "../node_modules"),
 ];
 
 config.resolver.extraNodeModules = {
-  'expo-object-tracker': '..',
+  "expo-object-tracker": "..",
 };
 
-config.watchFolders = [path.resolve(__dirname, '..')];
+config.watchFolders = [path.resolve(__dirname, "..")];
+
+// Add .mlmodel and .mlpackage files as assets
+config.resolver.assetExts = [
+  ...config.resolver.assetExts,
+  "mlmodel",
+  "mlpackage",
+];
 
 config.transformer.getTransformOptions = async () => ({
   transform: {

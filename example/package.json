@@ -6,7 +6,10 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "delete:module": "rm -rf package-lock.json && rm -rf yarn.lock && rm -rf node_modules",
+    "delete:pods": "rm -rf ios/Podfile.lock && rm -rf ios/Pods",
+    "install:pods": "cd ios && pod repo update && pod update && pod install"
   },
   "dependencies": {
     "expo": "~53.0.22",
