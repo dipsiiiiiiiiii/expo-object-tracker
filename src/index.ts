@@ -3,4 +3,4 @@
 export { default } from './ExpoObjectTrackerModule';
 export { default as VideoObjectTracker } from './VideoObjectTracker';
 export { VideoObjectTracker as VideoObjectTrackerClass } from './VideoObjectTracker';
-export * from  './ExpoObjectTracker.types';
+export * from './ExpoObjectTracker.types';

@@ -5,6 +5,7 @@ import UIKit
 import CoreGraphics
 import CoreML
 import CoreImage
+import TensorFlowLite
 
 // DetectedObject struct definition
 struct DetectedObject {
@@ -20,11 +21,14 @@ struct DetectedObject {
     }
 }
 
-// YOLOv11Detector class  
+// YOLOv11Detector class with TensorFlow Lite
 class YOLOv11Detector {
-    private var model: VNCoreMLModel?
+    private var interpreter: Interpreter?
     private var modelURL: URL?
     private var customClassNames: [String]?
+    private var inputWidth: Int = 640
+    private var inputHeight: Int = 640
+    private var inputChannels: Int = 3
     
     // COCO dataset class names
     private let classNames = [
@@ -45,268 +49,169 @@ class YOLOv11Detector {
     }
     
     func loadModel(from path: String, type: String, classNames: [String]? = nil) throws {
-        print("🔧 Loading model from path: \(path)")
+        print("🔧 Loading TFLite model from path: \(path)")
         print("   Model type: \(type)")
         print("   Class names count: \(classNames?.count ?? 0)")
-        print("   Available bundles: \(Bundle.allBundles.count + Bundle.allFrameworks.count)")
         
-        var modelURL: URL?
+        let actualPath: String
         
-        // 절대 경로인지 확인
-        if path.hasPrefix("/") {
-            // 절대 경로로 제공된 경우
-            modelURL = URL(fileURLWithPath: path)
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            // HTTP URL인 경우 파일을 다운로드해서 로컬 경로 얻기
+            guard let url = URL(string: path) else {
+                throw NSError(domain: "YOLOv11Detector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid model URL: \(path)"])
+            }
+            
+            print("📥 Downloading model from HTTP URL...")
+            let semaphore = DispatchSemaphore(value: 0)
+            var downloadedPath: String?
+            var downloadError: Error?
+            
+            let downloadTask = URLSession.shared.downloadTask(with: url) { (tempURL, response, error) in
+                if let error = error {
+                    downloadError = error
+                    semaphore.signal()
+                    return
+                }
+                
+                guard let tempURL = tempURL else {
+                    downloadError = NSError(domain: "YOLOv11Detector", code: 2, userInfo: [NSLocalizedDescriptionKey: "No temporary file URL"])
+                    semaphore.signal()
+                    return
+                }
+                
+                // 임시 파일을 앱의 Documents 디렉토리로 이동
+                let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let destinationURL = documentsPath.appendingPathComponent("yolo_model.tflite")
+                
+                do {
+                    // 기존 파일이 있으면 삭제
+                    if FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try FileManager.default.removeItem(at: destinationURL)
+                    }
+                    
+                    try FileManager.default.moveItem(at: tempURL, to: destinationURL)
+                    downloadedPath = destinationURL.path
+                    print("✅ Model downloaded to: \(destinationURL.path)")
+                } catch {
+                    downloadError = error
+                }
+                
+                semaphore.signal()
+            }
+            
+            downloadTask.resume()
+            semaphore.wait()
+            
+            if let error = downloadError {
+                throw NSError(domain: "YOLOv11Detector", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to download model: \(error.localizedDescription)"])
+            }
+            
+            guard let path = downloadedPath else {
+                throw NSError(domain: "YOLOv11Detector", code: 4, userInfo: [NSLocalizedDescriptionKey: "Failed to get downloaded model path"])
+            }
+            
+            actualPath = path
         } else {
-            // 파일명만 제공된 경우 번들에서 찾기
-            print("🔍 Searching for model '\(path)' in bundles...")
-            
-            let fileName = path.hasPrefix("yolo") ? path : path
-            
-            // .mlpackage 우선 (완전한 모델), .mlmodel은 fallback
-            let extensions = ["mlpackage", "mlmodel"]
-            let possibleNames = [fileName, "yolo11n-seg", "yolo11n"] // seg 모델 우선
-            
-            // Main bundle 먼저 시도
-            for name in possibleNames {
-                for ext in extensions {
-                    if let bundlePath = Bundle.main.path(forResource: name, ofType: ext) {
-                        modelURL = URL(fileURLWithPath: bundlePath)
-                        print("✅ Found \(ext) model in main bundle: \(bundlePath)")
-                        break
-                    }
-                }
-                if modelURL != nil { break }
-            }
-            
-            // 모든 번들에서 검색
-            if modelURL == nil {
-                print("🔍 Searching in all bundles...")
-                for (index, bundle) in (Bundle.allBundles + Bundle.allFrameworks).enumerated() {
-                    print("   Bundle \(index): \(bundle.bundleIdentifier ?? "unknown") - \(bundle.bundlePath)")
-                    
-                    // 번들 내용 확인
-                    if let resourcePath = bundle.resourcePath {
-                        do {
-                            let contents = try FileManager.default.contentsOfDirectory(atPath: resourcePath)
-                            let modelFiles = contents.filter { $0.contains("yolo") || $0.contains(".ml") }
-                            if !modelFiles.isEmpty {
-                                print("     Model files in bundle: \(modelFiles)")
-                            }
-                        } catch {
-                            print("     Could not read bundle contents: \(error)")
-                        }
-                    }
-                    
-                    for name in possibleNames {
-                        for ext in extensions {
-                            if let bundlePath = bundle.path(forResource: name, ofType: ext) {
-                                modelURL = URL(fileURLWithPath: bundlePath)
-                                print("✅ Found \(ext) model in bundle \(bundle.bundleIdentifier ?? "unknown"): \(bundlePath)")
-                                break
-                            }
-                        }
-                        if modelURL != nil { break }
-                    }
-                    if modelURL != nil { break }
-                }
+            // 로컬 파일 경로인 경우
+            if path.hasPrefix("file://") {
+                actualPath = String(path.dropFirst(7)) // "file://" 제거
+            } else {
+                actualPath = path
             }
         }
         
-        guard let url = modelURL else {
-            print("❌ Model file not found: \(path)")
-            print("🔍 Debug: Searched bundles:")
-            for bundle in Bundle.allBundles + Bundle.allFrameworks {
-                let bundleId = bundle.bundleIdentifier ?? "unknown"
-                print("  - Bundle: \(bundleId)")
-                if let resourcePath = bundle.resourcePath {
-                    let contents = (try? FileManager.default.contentsOfDirectory(atPath: resourcePath)) ?? []
-                    let modelFiles = contents.filter { $0.contains("yolo") || $0.contains(".mlmodel") || $0.contains(".mlpackage") }
-                    if !modelFiles.isEmpty {
-                        print("    Model-related files: \(modelFiles)")
-                    }
-                }
-            }
-            throw NSError(domain: "YOLOv11Detector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model file not found: \(path)"])
-        }
-        
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            print("❌ Model file not accessible at: \(url.path)")
-            throw NSError(domain: "YOLOv11Detector", code: 2, userInfo: [NSLocalizedDescriptionKey: "Model file not accessible at: \(url.path)"])
-        }
+        print("📁 Using model path: \(actualPath)")
         
         do {
-            // 모델이 컴파일되지 않은 경우 먼저 컴파일
-            var compiledModelURL: URL
+            interpreter = try Interpreter(modelPath: actualPath)
+            try interpreter?.allocateTensors()
             
-            if url.pathExtension == "mlmodel" || url.pathExtension == "mlpackage" {
-                print("🔨 Compiling \(url.pathExtension) to .mlmodelc...")
-                compiledModelURL = try MLModel.compileModel(at: url)
-                print("✅ Model compiled successfully at: \(compiledModelURL.path)")
-            } else if url.pathExtension == "mlmodelc" {
-                print("✅ Using pre-compiled model: \(url.path)")
-                compiledModelURL = url
-            } else {
-                compiledModelURL = url
+            self.modelURL = URL(fileURLWithPath: actualPath)
+            self.customClassNames = classNames
+            
+            // 입력 텐서 정보 확인
+            if let inputTensor = try interpreter?.input(at: 0) {
+                print("✅ Input tensor shape: \(inputTensor.shape)")
+                if inputTensor.shape.dimensions.count >= 3 {
+                    inputHeight = inputTensor.shape.dimensions[1]
+                    inputWidth = inputTensor.shape.dimensions[2]
+                    inputChannels = inputTensor.shape.dimensions[3]
+                }
+                print("   Input size: \(inputWidth)x\(inputHeight)x\(inputChannels)")
             }
             
-            let mlModel = try MLModel(contentsOf: compiledModelURL)
-            model = try VNCoreMLModel(for: mlModel)
-            self.modelURL = compiledModelURL
-            self.customClassNames = classNames
-            print("✅ Model loaded successfully from: \(compiledModelURL.path)")
+            // 출력 텐서 정보 확인
+            let outputCount = interpreter?.outputTensorCount ?? 0
+            print("✅ Output tensors count: \(outputCount)")
+            for i in 0..<outputCount {
+                if let outputTensor = try interpreter?.output(at: i) {
+                    print("   Output \(i) shape: \(outputTensor.shape)")
+                }
+            }
+            
+            print("✅ TFLite model loaded successfully from: \(actualPath)")
         } catch {
-            print("❌ Failed to load model from \(url.path): \(error)")
+            print("❌ Failed to load TFLite model from \(actualPath): \(error)")
             throw error
         }
     }
     
     func detectObjects(in ciImage: CIImage, completion: @escaping ([DetectedObject]) -> Void) {
-        guard let model = model else {
-            print("❌ Model not available")
+        guard let interpreter = interpreter else {
+            print("❌ TFLite interpreter not available")
             completion([])
             return
         }
         
-        print("🔍 Starting YOLOv11 detection...")
+        print("🔍 Starting YOLOv11 TFLite detection...")
         print("   Original image size: \(ciImage.extent.width) x \(ciImage.extent.height)")
         
-        // YOLOv11 모델 요구사항: 640x640 정방형 입력
-        // 이미지를 640x640으로 직접 리사이즈 (aspect ratio 유지, letterboxing)
-        let targetSize: CGFloat = 640
-        let preprocessedImage = preprocessImageForYOLO(ciImage, targetSize: targetSize)
-        print("   Preprocessed image size: \(preprocessedImage.extent.width) x \(preprocessedImage.extent.height)")
-        
-        if let colorSpace = preprocessedImage.colorSpace {
-            print("   Image color space: \(colorSpace)")
-        } else {
-            print("   Image color space: unknown")
-        }
-        
-        // 직접 CoreML 테스트를 위해 모델 정보 확인
-        if let modelURL = modelURL {
-            print("   Model path: \(modelURL.path)")
-            // Vision 대신 직접 CoreML 사용 시도
-            testDirectCoreMLInference(ciImage: preprocessedImage, modelURL: modelURL) { directResults in
-                if !directResults.isEmpty {
-                    print("   ✅ Direct CoreML succeeded with \(directResults.count) detections!")
-                    completion(directResults)
-                    return
-                } else {
-                    print("   ⚠️ Direct CoreML failed, trying Vision...")
-                }
-            }
-        }
-        
-        let request = VNCoreMLRequest(model: model) { request, error in
-            if let error = error {
-                print("❌ Detection error: \(error)")
-                completion([])
-                return
+        do {
+            // 이미지 전처리: YOLOv11 요구사항에 맞게 리사이즈 및 정규화
+            let inputData = try preprocessImageForTFLite(ciImage)
+            print("   ✅ Image preprocessed for TFLite")
+            
+            // 입력 텐서에 데이터 설정
+            try interpreter.copy(inputData, toInputAt: 0)
+            print("   ✅ Input data copied to tensor")
+            
+            // 추론 실행
+            try interpreter.invoke()
+            print("   ✅ TFLite inference completed")
+            
+            // 출력 텐서에서 결과 가져오기
+            let outputTensor = try interpreter.output(at: 0)
+            print("   📊 Output tensor shape: \(outputTensor.shape)")
+            print("   📊 Output tensor data size: \(outputTensor.data.count) bytes")
+            
+            // 출력 데이터를 Float 배열로 변환
+            let outputData = outputTensor.data.withUnsafeBytes { bytes in
+                return Array(bytes.bindMemory(to: Float32.self))
             }
             
-            print("✅ Detection request completed!")
-            print("   Raw results count: \(request.results?.count ?? 0)")
-            print("   Result types: \(request.results?.map { type(of: $0) } ?? [])")
+            print("   📊 Output data count: \(outputData.count)")
             
-            // 각 result의 상세 정보 출력
-            if let results = request.results {
-                for (index, result) in results.enumerated() {
-                    print("   Result \(index): \(type(of: result))")
-                    if let coreMLResult = result as? VNCoreMLFeatureValueObservation {
-                        print("     Feature name: \(coreMLResult.featureName)")
-                        print("     Feature value type: \(coreMLResult.featureValue.type)")
-                        if coreMLResult.featureValue.type == .multiArray {
-                            let array = coreMLResult.featureValue.multiArrayValue!
-                            print("     Shape: \(array.shape), Count: \(array.count)")
-                            
-                            // 실제 데이터 샘플링해서 0이 아닌 값 찾기
-                            var nonZeroCount = 0
-                            var sampleValues: [Float] = []
-                            let sampleSize = min(1000, array.count)
-                            
-                            for i in 0..<sampleSize {
-                                let value = array[[NSNumber(value: i)]].floatValue
-                                sampleValues.append(value)
-                                if abs(value) > 0.001 {
-                                    nonZeroCount += 1
-                                }
-                            }
-                            
-                            print("     Non-zero values in first \(sampleSize): \(nonZeroCount)")
-                            if nonZeroCount > 0 {
-                                let nonZeroValues = sampleValues.filter { abs($0) > 0.001 }.prefix(10)
-                                print("     Sample non-zero values: \(Array(nonZeroValues))")
-                            }
-                            
-                            // 특정 위치의 값들 체크 (confidence나 중요한 값들이 있을 것 같은 곳)
-                            if coreMLResult.featureName == "var_1366" {
-                                print("     Checking key positions:")
-                                let numDetections = 8400
-                                for det in [0, 1, 10, 100, 1000].prefix(while: { $0 < numDetections }) {
-                                    let confIdx = 4 * numDetections + det // objectness position
-                                    if confIdx < array.count {
-                                        let conf = array[[NSNumber(value: confIdx)]].floatValue
-                                        print("       Detection \(det) objectness: \(conf)")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            // 출력 데이터 샘플링 확인
+            let sampleSize = min(100, outputData.count)
+            let nonZeroCount = outputData.prefix(sampleSize).filter { abs($0) > 0.001 }.count
+            print("   📊 Non-zero values in first \(sampleSize): \(nonZeroCount)")
+            
+            if nonZeroCount > 0 {
+                let nonZeroValues = outputData.prefix(sampleSize).filter { abs($0) > 0.001 }.prefix(10)
+                print("   📊 Sample non-zero values: \(Array(nonZeroValues))")
             }
             
-            // VNCoreMLFeatureValueObservation의 raw output 확인
-            for (index, result) in (request.results ?? []).enumerated() {
-                print("   Result \(index): \(type(of: result))")
-                if let featureResult = result as? VNCoreMLFeatureValueObservation {
-                    print("     Feature name: \(featureResult.featureName)")
-                    let featureValue = featureResult.featureValue
-                    print("     Feature type: \(featureValue.type)")
-                    
-                    if featureValue.type == .multiArray {
-                        let multiArray = featureValue.multiArrayValue!
-                        print("     MultiArray shape: \(multiArray.shape)")
-                        print("     MultiArray dataType: \(multiArray.dataType)")
-                        print("     MultiArray count: \(multiArray.count)")
-                        
-                        // 첫 몇 개 값 확인
-                        if multiArray.count > 0 {
-                            let firstValues = (0..<min(10, multiArray.count)).map { 
-                                multiArray[[NSNumber(value: $0)]].floatValue 
-                            }
-                            print("     First values: \(firstValues)")
-                        }
-                    }
-                }
-            }
+            // YOLO 결과 파싱
+            let detections = parseTFLiteYOLOResults(outputData)
+            print("   ✅ Final detections count: \(detections.count)")
             
-            let detections = self.parseResults(request.results)
-            print("   Final detections count: \(detections.count)")
             for (index, detection) in detections.enumerated() {
                 print("   Detection \(index): \(detection.description)")
             }
+            
             completion(detections)
-        }
-        
-        // YOLOv11 표준: 640x640 입력, aspect ratio 유지하며 letterboxing
-        request.imageCropAndScaleOption = VNImageCropAndScaleOption.scaleFit
-        
-        // YOLOv11 모델 설정 확인
-        request.usesCPUOnly = false // GPU 사용 허용
-        
-        // VNCoreMLModel 정보 출력
-        print("   VNCoreMLModel configured for Vision framework")
-        
-        // 이미지 전처리 확인 - YOLOv11은 보통 640x640을 요구함
-        print("   Input image extent: \(ciImage.extent)")
-        print("   Input image properties: \(ciImage.properties)")
-        
-        let handler = VNImageRequestHandler(ciImage: preprocessedImage)
-        
-        do {
-            try handler.perform([request])
         } catch {
-            print("❌ Failed to perform detection: \(error)")
+            print("❌ TFLite inference failed: \(error)")
             completion([])
         }
     }
@@ -736,6 +641,162 @@ class YOLOv11Detector {
         print("   Final preprocessed size: \(result.extent)")
         
         return result
+    }
+    
+    // TensorFlow Lite용 이미지 전처리
+    private func preprocessImageForTFLite(_ inputImage: CIImage) throws -> Data {
+        let targetSize: CGFloat = CGFloat(max(inputWidth, inputHeight))
+        
+        // 기존 YOLO 전처리를 재사용하여 640x640 이미지 생성
+        let preprocessedImage = preprocessImageForYOLO(inputImage, targetSize: targetSize)
+        
+        // CIImage를 CGImage로 변환
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(preprocessedImage, from: preprocessedImage.extent) else {
+            throw NSError(domain: "TFLitePreprocessing", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to convert CIImage to CGImage"])
+        }
+        
+        // CGImage를 pixel buffer로 변환하고 정규화
+        let width = cgImage.width
+        let height = cgImage.height
+        let channels = inputChannels
+        
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+            throw NSError(domain: "TFLitePreprocessing", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create color space"])
+        }
+        
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        let bitsPerComponent = 8
+        
+        var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
+        
+        guard let context = CGContext(
+            data: &pixelData,
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else {
+            throw NSError(domain: "TFLitePreprocessing", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to create CGContext"])
+        }
+        
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        
+        // RGB 데이터 추출 및 정규화 (0-1 범위)
+        var floatArray = [Float32]()
+        floatArray.reserveCapacity(width * height * channels)
+        
+        for y in 0..<height {
+            for x in 0..<width {
+                let pixelOffset = (y * width + x) * bytesPerPixel
+                let r = Float32(pixelData[pixelOffset]) / 255.0
+                let g = Float32(pixelData[pixelOffset + 1]) / 255.0
+                let b = Float32(pixelData[pixelOffset + 2]) / 255.0
+                
+                floatArray.append(r)
+                floatArray.append(g)
+                floatArray.append(b)
+            }
+        }
+        
+        print("   TFLite input shape: [\(1), \(height), \(width), \(channels)]")
+        print("   TFLite input data size: \(floatArray.count) floats")
+        
+        // Float32 배열을 Data로 변환
+        return Data(bytes: floatArray, count: floatArray.count * MemoryLayout<Float32>.size)
+    }
+    
+    // TFLite YOLO 결과 파싱
+    private func parseTFLiteYOLOResults(_ outputData: [Float32]) -> [DetectedObject] {
+        print("   🔍 Parsing TFLite YOLO results...")
+        
+        // YOLOv11-seg 출력 형태 분석
+        // 일반적으로 [1, 116, 8400] 형태로 출력됨
+        // 116 = 4 (bbox) + 1 (objectness) + 80 (classes) + 31 (mask coefficients)
+        // 8400 = 80*80 + 40*40 + 20*20 (다양한 스케일의 앵커 포인트)
+        
+        let numDetections = 8400
+        let numFeatures = 116
+        
+        guard outputData.count >= numDetections * numFeatures else {
+            print("   ❌ Insufficient output data: expected \(numDetections * numFeatures), got \(outputData.count)")
+            return []
+        }
+        
+        var detections: [DetectedObject] = []
+        let confidenceThreshold: Float = 0.1 // Lower threshold for debugging
+        
+        for i in 0..<numDetections {
+            // YOLOv11 출력 레이아웃: [batch_size, features, detections]
+            // 메모리에서는 연속적으로: [all features for detection 0, all features for detection 1, ...]
+            
+            let baseIdx = i * numFeatures
+            
+            // 바운딩 박스 좌표 (cx, cy, w, h) - 정규화됨
+            let cx = outputData[baseIdx + 0]
+            let cy = outputData[baseIdx + 1]
+            let w = outputData[baseIdx + 2]
+            let h = outputData[baseIdx + 3]
+            
+            // Objectness confidence
+            let objectness = outputData[baseIdx + 4]
+            
+            if objectness > confidenceThreshold {
+                // 클래스별 confidence 확인 (indices 5-84)
+                var maxClassConfidence: Float = 0
+                var maxClassIndex = 0
+                
+                for classIdx in 0..<80 { // 80개 COCO 클래스
+                    let classConf = outputData[baseIdx + 5 + classIdx]
+                    if classConf > maxClassConfidence {
+                        maxClassConfidence = classConf
+                        maxClassIndex = classIdx
+                    }
+                }
+                
+                let finalConfidence = objectness * maxClassConfidence
+                
+                if finalConfidence > confidenceThreshold && maxClassIndex < classNames.count {
+                    // Center format을 corner format으로 변환
+                    let x = cx - w / 2
+                    let y = cy - h / 2
+                    
+                    let boundingBox = CGRect(
+                        x: CGFloat(x),
+                        y: CGFloat(y),
+                        width: CGFloat(w),
+                        height: CGFloat(h)
+                    )
+                    
+                    let className = customClassNames?[maxClassIndex] ?? classNames[maxClassIndex]
+                    
+                    let detection = DetectedObject(
+                        className: className,
+                        confidence: finalConfidence,
+                        boundingBox: boundingBox,
+                        identifier: String(maxClassIndex),
+                        segmentationMask: nil // TODO: Implement segmentation mask extraction
+                    )
+                    
+                    detections.append(detection)
+                    
+                    if detections.count <= 10 { // 처음 10개만 로그 출력
+                        print("   🎯 Detection \(detections.count): \(className) (conf: \(finalConfidence), box: \(boundingBox))")
+                    }
+                }
+            }
+        }
+        
+        print("   📊 Raw detections found: \(detections.count)")
+        
+        // NMS 적용
+        let finalResults = applyNMS(to: detections, threshold: 0.5)
+        print("   📉 Final detections after NMS: \(finalResults.count)")
+        
+        return finalResults
     }
     
     // 직접 CoreML로 추론 수행

@@ -1,41 +1,40 @@
-import ExpoObjectTrackerModule from './ExpoObjectTrackerModule';
-import { DetectedObject, TrackedObject, VideoProcessingOptions, EffectConfig, ModelConfig } from './ExpoObjectTracker.types';
+import { Image as RNImage } from "react-native";
+import ExpoObjectTrackerModule from "./ExpoObjectTrackerModule";
+import {
+  DetectedObject,
+  TrackedObject,
+  VideoProcessingOptions,
+  EffectConfig,
+  ModelConfig,
+  SAMPoint,
+  SAMSegmentationResult,
+  SAMPrompt,
+  BoundingBox,
+} from "./ExpoObjectTracker.types";
 
 export class VideoObjectTracker {
-  private processingCallbacks: Map<string, (progress: number, status: string) => void> = new Map();
+  private processingCallbacks: Map<
+    string,
+    (progress: number, status: string) => void
+  > = new Map();
 
   /**
    * Load a custom model for object detection
    */
   async loadModel(modelConfig: ModelConfig): Promise<void> {
     try {
-      await ExpoObjectTrackerModule.loadModel(modelConfig.modelPath, modelConfig.type, modelConfig.classNames);
-      console.log('Model loaded successfully:', modelConfig);
+      await ExpoObjectTrackerModule.loadModel(
+        modelConfig.modelPath,
+        modelConfig.type,
+        modelConfig.classNames
+      );
+      console.log("Model loaded successfully:", modelConfig);
     } catch (error) {
-      console.error('Failed to load model:', error);
+      console.error("Failed to load model:", error);
       throw error;
     }
   }
 
-  /**
-   * Load built-in YOLOv11n-seg model (automatically finds the best available format)
-   */
-  async loadBuiltinYolo11Model(): Promise<void> {
-    try {
-      // Try to load YOLOv11-seg first (segmentation model), fallback to regular YOLOv11n
-      await ExpoObjectTrackerModule.loadModel('yolo11n-seg', 'yolo11', this.getAvailableClasses());
-      console.log('Built-in YOLOv11n-seg model loaded successfully');
-    } catch (error) {
-      console.warn('Failed to load YOLOv11-seg, trying YOLOv11n:', error);
-      try {
-        await ExpoObjectTrackerModule.loadModel('yolo11n', 'yolo11', this.getAvailableClasses());
-        console.log('Built-in YOLOv11n model loaded successfully');
-      } catch (fallbackError) {
-        console.error('Failed to load any built-in YOLO model:', fallbackError);
-        throw fallbackError;
-      }
-    }
-  }
 
   /**
    * Detect objects in a single video frame using YOLOv11
@@ -45,10 +44,13 @@ export class VideoObjectTracker {
     frameIndex: number = 0
   ): Promise<DetectedObject[]> {
     try {
-      const detections = await ExpoObjectTrackerModule.detectObjects(videoUri, frameIndex);
+      const detections = await ExpoObjectTrackerModule.detectObjects(
+        videoUri,
+        frameIndex
+      );
       return detections;
     } catch (error) {
-      console.error('Failed to detect objects in frame:', error);
+      console.error("Failed to detect objects in frame:", error);
       throw error;
     }
   }
@@ -62,10 +64,13 @@ export class VideoObjectTracker {
   ): Promise<DetectedObject[]> {
     try {
       const { maxFrames = 30 } = options;
-      const detections = await ExpoObjectTrackerModule.detectObjectsInVideo(videoUri, maxFrames);
+      const detections = await ExpoObjectTrackerModule.detectObjectsInVideo(
+        videoUri,
+        maxFrames
+      );
       return detections;
     } catch (error) {
-      console.error('Failed to detect objects in video:', error);
+      console.error("Failed to detect objects in video:", error);
       throw error;
     }
   }
@@ -86,7 +91,7 @@ export class VideoObjectTracker {
       );
       return previewUri;
     } catch (error) {
-      console.error('Failed to create detection preview:', error);
+      console.error("Failed to create detection preview:", error);
       throw error;
     }
   }
@@ -100,30 +105,34 @@ export class VideoObjectTracker {
     onProgress?: (progress: number, status: string) => void
   ): Promise<TrackedObject[]> {
     try {
-      const { targetClassName, minConfidence = 0.5, detectionInterval = 1 } = options;
-      
+      const {
+        targetClassName,
+        minConfidence = 0.5,
+        detectionInterval = 1,
+      } = options;
+
       if (onProgress) {
-        onProgress(0, 'Starting object detection and tracking...');
+        onProgress(0, "Starting object detection and tracking...");
       }
 
-      const trackingResults = await ExpoObjectTrackerModule.detectAndTrackObjects(
-        videoUri,
-        targetClassName,
-        minConfidence,
-        detectionInterval
-      );
+      const trackingResults =
+        await ExpoObjectTrackerModule.detectAndTrackObjects(
+          videoUri,
+          targetClassName,
+          minConfidence,
+          detectionInterval
+        );
 
       if (onProgress) {
-        onProgress(100, 'Object detection and tracking completed');
+        onProgress(100, "Object detection and tracking completed");
       }
 
       return trackingResults;
     } catch (error) {
-      console.error('Failed to detect and track objects:', error);
+      console.error("Failed to detect and track objects:", error);
       throw error;
     }
   }
-
 
   /**
    * Create a video with tracking visualization
@@ -136,22 +145,23 @@ export class VideoObjectTracker {
   ): Promise<string> {
     try {
       if (onProgress) {
-        onProgress(0, 'Creating tracking visualization...');
+        onProgress(0, "Creating tracking visualization...");
       }
 
-      const visualizationUri = await ExpoObjectTrackerModule.createTrackingVisualization(
-        videoUri,
-        trackingResults,
-        outputPath
-      );
+      const visualizationUri =
+        await ExpoObjectTrackerModule.createTrackingVisualization(
+          videoUri,
+          trackingResults,
+          outputPath
+        );
 
       if (onProgress) {
-        onProgress(100, 'Tracking visualization completed');
+        onProgress(100, "Tracking visualization completed");
       }
 
       return visualizationUri;
     } catch (error) {
-      console.error('Failed to create tracking visualization:', error);
+      console.error("Failed to create tracking visualization:", error);
       throw error;
     }
   }
@@ -167,29 +177,30 @@ export class VideoObjectTracker {
   ): Promise<string> {
     try {
       if (onProgress) {
-        onProgress(0, 'Applying effects to tracked objects...');
+        onProgress(0, "Applying effects to tracked objects...");
       }
 
       // Convert TrackedObject[] to TrackingData[] format expected by the module
-      const trackingData = trackingResults.map(result => ({
+      const trackingData = trackingResults.map((result) => ({
         frameIndex: result.frameIndex,
         boundingBox: result.boundingBox,
-        confidence: result.confidence
+        confidence: result.confidence,
       }));
 
-      const processedVideoUri = await ExpoObjectTrackerModule.applyEffectToTrackedObject(
-        videoUri,
-        trackingData,
-        effectConfig
-      );
+      const processedVideoUri =
+        await ExpoObjectTrackerModule.applyEffectToTrackedObject(
+          videoUri,
+          trackingData,
+          effectConfig
+        );
 
       if (onProgress) {
-        onProgress(100, 'Video processing with effects completed');
+        onProgress(100, "Video processing with effects completed");
       }
 
       return processedVideoUri;
     } catch (error) {
-      console.error('Failed to process video with effects:', error);
+      console.error("Failed to process video with effects:", error);
       throw error;
     }
   }
@@ -197,12 +208,15 @@ export class VideoObjectTracker {
   /**
    * Get video resolution information
    */
-  async getVideoResolution(videoUri: string): Promise<{ width: number; height: number }> {
+  async getVideoResolution(
+    videoUri: string
+  ): Promise<{ width: number; height: number }> {
     try {
-      const resolution = await ExpoObjectTrackerModule.getVideoResolution(videoUri);
+      const resolution =
+        await ExpoObjectTrackerModule.getVideoResolution(videoUri);
       return resolution;
     } catch (error) {
-      console.error('Failed to get video resolution:', error);
+      console.error("Failed to get video resolution:", error);
       throw error;
     }
   }
@@ -229,12 +243,12 @@ export class VideoObjectTracker {
         minConfidence = 0.5,
         effectConfig,
         createVisualization = false,
-        outputPath
+        outputPath,
       } = options;
 
       // Step 1: Detect and track objects
-      if (onProgress) onProgress(0, 'Detecting and tracking objects...');
-      
+      if (onProgress) onProgress(0, "Detecting and tracking objects...");
+
       const trackingResults = await this.detectAndTrackObjects(
         videoUri,
         { targetClassName, minConfidence },
@@ -244,14 +258,14 @@ export class VideoObjectTracker {
       );
 
       if (trackingResults.length === 0) {
-        throw new Error('No objects detected in video');
+        throw new Error("No objects detected in video");
       }
 
       // Step 2: Apply effects if configured
       let processedVideoUri: string | undefined;
       if (effectConfig) {
-        if (onProgress) onProgress(60, 'Applying effects...');
-        
+        if (onProgress) onProgress(60, "Applying effects...");
+
         processedVideoUri = await this.processVideoWithEffects(
           videoUri,
           trackingResults,
@@ -265,8 +279,8 @@ export class VideoObjectTracker {
       // Step 3: Create visualization if requested
       let visualizationUri: string | undefined;
       if (createVisualization) {
-        if (onProgress) onProgress(90, 'Creating visualization...');
-        
+        if (onProgress) onProgress(90, "Creating visualization...");
+
         visualizationUri = await this.createTrackingVisualization(
           processedVideoUri || videoUri,
           trackingResults,
@@ -277,15 +291,15 @@ export class VideoObjectTracker {
         );
       }
 
-      if (onProgress) onProgress(100, 'Video processing completed');
+      if (onProgress) onProgress(100, "Video processing completed");
 
       return {
         trackingResults,
         processedVideoUri,
-        visualizationUri
+        visualizationUri,
       };
     } catch (error) {
-      console.error('Failed to process video:', error);
+      console.error("Failed to process video:", error);
       throw error;
     }
   }
@@ -302,17 +316,203 @@ export class VideoObjectTracker {
    */
   getAvailableClasses(): string[] {
     return [
-      "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-      "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
-      "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
-      "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
-      "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-      "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-      "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
-      "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-      "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
-      "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush"
+      "person",
+      "bicycle",
+      "car",
+      "motorcycle",
+      "airplane",
+      "bus",
+      "train",
+      "truck",
+      "boat",
+      "traffic light",
+      "fire hydrant",
+      "stop sign",
+      "parking meter",
+      "bench",
+      "bird",
+      "cat",
+      "dog",
+      "horse",
+      "sheep",
+      "cow",
+      "elephant",
+      "bear",
+      "zebra",
+      "giraffe",
+      "backpack",
+      "umbrella",
+      "handbag",
+      "tie",
+      "suitcase",
+      "frisbee",
+      "skis",
+      "snowboard",
+      "sports ball",
+      "kite",
+      "baseball bat",
+      "baseball glove",
+      "skateboard",
+      "surfboard",
+      "tennis racket",
+      "bottle",
+      "wine glass",
+      "cup",
+      "fork",
+      "knife",
+      "spoon",
+      "bowl",
+      "banana",
+      "apple",
+      "sandwich",
+      "orange",
+      "broccoli",
+      "carrot",
+      "hot dog",
+      "pizza",
+      "donut",
+      "cake",
+      "chair",
+      "couch",
+      "potted plant",
+      "bed",
+      "dining table",
+      "toilet",
+      "tv",
+      "laptop",
+      "mouse",
+      "remote",
+      "keyboard",
+      "cell phone",
+      "microwave",
+      "oven",
+      "toaster",
+      "sink",
+      "refrigerator",
+      "book",
+      "clock",
+      "vase",
+      "scissors",
+      "teddy bear",
+      "hair drier",
+      "toothbrush",
     ];
+  }
+
+  // MARK: - SAM2 Segmentation Methods
+
+  /**
+   * Segment an object in an image using a single point prompt
+   */
+  async segmentWithPoint(
+    imageUri: string,
+    point: { x: number; y: number },
+    isBackground: boolean = false
+  ): Promise<SAMSegmentationResult> {
+    try {
+      const result = await ExpoObjectTrackerModule.segmentWithPoint(
+        imageUri,
+        point.x,
+        point.y,
+        isBackground
+      );
+      return result as SAMSegmentationResult;
+    } catch (error) {
+      console.error("Failed to segment with point:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Segment an object in an image using a bounding box prompt
+   */
+  async segmentWithBoundingBox(
+    imageUri: string,
+    boundingBox: BoundingBox
+  ): Promise<SAMSegmentationResult> {
+    try {
+      const result = await ExpoObjectTrackerModule.segmentWithBoundingBox(
+        imageUri,
+        boundingBox
+      );
+      return result as SAMSegmentationResult;
+    } catch (error) {
+      console.error("Failed to segment with bounding box:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Segment an object in an image using multiple point prompts
+   */
+  async segmentWithPoints(
+    imageUri: string,
+    points: SAMPoint[]
+  ): Promise<SAMSegmentationResult> {
+    try {
+      const result = await ExpoObjectTrackerModule.segmentWithPoints(
+        imageUri,
+        points
+      );
+      return result as SAMSegmentationResult;
+    } catch (error) {
+      console.error("Failed to segment with points:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Segment all objects in an image using SAM everything mode
+   */
+  async segmentEverything(imageUri: string): Promise<SAMSegmentationResult[]> {
+    try {
+      const results = await ExpoObjectTrackerModule.segmentEverything(imageUri);
+      return results as SAMSegmentationResult[];
+    } catch (error) {
+      console.error("Failed to segment everything:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Universal segment method that accepts different prompt types
+   */
+  async segment(
+    imageUri: string,
+    prompt: SAMPrompt
+  ): Promise<SAMSegmentationResult> {
+    switch (prompt.type) {
+      case 'point':
+        return this.segmentWithPoint(
+          imageUri, 
+          prompt.point, 
+          prompt.isBackground || false
+        );
+      
+      case 'points':
+        return this.segmentWithPoints(imageUri, prompt.points);
+      
+      case 'boundingBox':
+        return this.segmentWithBoundingBox(imageUri, prompt.boundingBox);
+      
+      default:
+        throw new Error(`Unsupported prompt type: ${(prompt as any).type}`);
+    }
+  }
+
+  /**
+   * Create a visualization overlay showing the segmented mask on the original image
+   */
+  async createSegmentationOverlay(
+    _originalImageUri: string,
+    maskUri: string,
+    _color: string = '#FF0000',
+    _opacity: number = 0.5
+  ): Promise<string> {
+    // This could be implemented using native image processing
+    // For now, return the mask URI as a placeholder
+    console.warn("createSegmentationOverlay not yet implemented - returning mask URI");
+    return maskUri;
   }
 }
 

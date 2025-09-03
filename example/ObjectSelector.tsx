@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { View, Image, StyleSheet, Text, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSharedValue } from "react-native-reanimated";
-import { BoundingBox, VideoObjectTracker, DetectedObject, TrackedObject } from "expo-object-tracker";
+import { BoundingBox, VideoObjectTrackerClass, SAMSegmentationResult } from "expo-object-tracker";
 
 interface ObjectSelectorProps {
   thumbnailUri: string;
@@ -11,8 +11,8 @@ interface ObjectSelectorProps {
   imageHeight: number;
   videoResolution: { width: number; height: number } | null;
   onBoundingBoxChange: (boundingBox: BoundingBox) => void;
-  onObjectDetected: (detections: DetectedObject[], selectedBox: BoundingBox) => void;
-  onProcessingComplete: (results: TrackedObject[], processedVideoUri?: string) => void;
+  onObjectSegmented: (segmentationResult: SAMSegmentationResult, selectedPoint: {x: number, y: number}) => void;
+  onProcessingComplete: (segmentationResult: SAMSegmentationResult, processedVideoUri?: string) => void;
   onCancel: () => void;
 }
 
@@ -23,18 +23,20 @@ export default function ObjectSelector({
   imageHeight,
   videoResolution,
   onBoundingBoxChange,
-  onObjectDetected,
+  onObjectSegmented,
   onProcessingComplete,
   onCancel,
 }: ObjectSelectorProps) {
-  const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
+  const [segmentationResult, setSegmentationResult] = useState<SAMSegmentationResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('');
-  const [processingProgress, setProcessingProgress] = useState<number>(0);
-  const [selectedObjectIndex, setSelectedObjectIndex] = useState<number>(-1);
+  const [selectedPoint, setSelectedPoint] = useState<{x: number, y: number} | null>(null);
 
   // scaledBox를 즉시 접근 가능한 SharedValue로 저장
   const scaledBoxShared = useSharedValue<BoundingBox | null>(null);
+
+  // Create VideoObjectTracker instance
+  const videoObjectTracker = new VideoObjectTrackerClass();
 
   // 전체 이미지에서 모든 객체 감지
   const detectAllObjects = async () => {
@@ -47,25 +49,21 @@ export default function ObjectSelector({
     }
 
     setIsProcessing(true);
-    setProcessingStatus('모델을 로딩하는 중...');
+    setProcessingStatus('전체 이미지에서 객체를 감지하는 중...');
 
     try {
-      // Use built-in YOLOv11-seg model from native module
-      console.log('Loading built-in YOLOv11-seg model...');
-      await VideoObjectTracker.loadBuiltinYolo11Model();
-      console.log('Built-in YOLO model loaded successfully');
       
-      setProcessingStatus('전체 이미지에서 객체를 감지하는 중...');
+      // 첫 번째 프레임에서 모든 객체 감지 (confidence 0.5 이상만)
+      const allDetections = await videoObjectTracker.detectObjectsInFrame(videoUri, 0);
+      const filteredDetections = allDetections.filter(detection => detection.confidence >= 0.5);
       
-      // 첫 번째 프레임에서 모든 객체 감지
-      const detections = await VideoObjectTracker.detectObjectsInFrame(videoUri, 0);
+      console.log('All detections count:', allDetections.length);
+      console.log('Filtered detections (confidence >= 0.5):', filteredDetections);
+      setDetectedObjects(filteredDetections);
       
-      console.log('All detections:', detections);
-      setDetectedObjects(detections);
-      
-      if (detections.length > 0) {
-        setProcessingStatus(`${detections.length}개의 객체를 발견했습니다!`);
-        onObjectDetected(detections, { x: 0, y: 0, width: videoResolution?.width || 1280, height: videoResolution?.height || 720 });
+      if (filteredDetections.length > 0) {
+        setProcessingStatus(`${filteredDetections.length}개의 객체를 발견했습니다!`);
+        onObjectDetected(filteredDetections, { x: 0, y: 0, width: videoResolution?.width || 1280, height: videoResolution?.height || 720 });
       } else {
         setProcessingStatus('이미지에서 객체를 찾을 수 없습니다.');
         Alert.alert('알림', '이미지에서 객체를 찾을 수 없습니다.');

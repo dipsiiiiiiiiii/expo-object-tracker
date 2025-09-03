@@ -55,3 +55,10 @@ yarn-error.log
 
 # Expo
 .expo/*
+
+# Model files
+example/assets/models/
+*.tflite
+*.mlmodel
+*.mlpackage
+*.mlmodelc

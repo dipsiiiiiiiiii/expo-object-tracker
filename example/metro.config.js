@@ -24,12 +24,8 @@ config.resolver.extraNodeModules = {
 
 config.watchFolders = [path.resolve(__dirname, "..")];
 
-// Add .mlmodel and .mlpackage files as assets
-config.resolver.assetExts = [
-  ...config.resolver.assetExts,
-  "mlmodel",
-  "mlpackage",
-];
+// Add TensorFlow Lite model files as assets
+config.resolver.assetExts.push("tflite");
 
 config.transformer.getTransformOptions = async () => ({
   transform: {

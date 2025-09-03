@@ -83,3 +83,21 @@ export type ExpoObjectTrackerModuleEvents = {
 export type ExpoObjectTrackerViewProps = {
   style?: any;
 };
+
+// SAM2 Types
+export type SAMPoint = {
+  x: number; // Normalized coordinates (0-1)
+  y: number; // Normalized coordinates (0-1)  
+  label: number; // 1 for foreground, 0 for background
+};
+
+export type SAMSegmentationResult = {
+  maskUri: string; // URI to the generated mask image
+  confidence: number; // Confidence score (0-1)
+  boundingBox: BoundingBox; // Bounding box of the segmented object
+};
+
+export type SAMPrompt = 
+  | { type: 'point'; point: { x: number; y: number }; isBackground?: boolean }
+  | { type: 'points'; points: SAMPoint[] }
+  | { type: 'boundingBox'; boundingBox: BoundingBox };
